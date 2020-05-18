@@ -11,7 +11,12 @@
 #include <errno.h>
 #include <modbus.h>
 
+#include <sys/stat.h>
+#include <fcntl.h>
+
 #include "unit-test.h"
+
+#define CLIENT_GPIO_INDEX 	"22"
 
 const int EXCEPTION_RC = 2;
 
@@ -20,6 +25,7 @@ enum {
     TCP_PI,
     RTU
 };
+
 
 int test_server(modbus_t *ctx, int use_backend);
 int send_crafted_request(modbus_t *ctx, int function,
@@ -43,6 +49,69 @@ int equal_dword(uint16_t *tab_reg, const uint32_t value);
 int equal_dword(uint16_t *tab_reg, const uint32_t value) {
     return ((tab_reg[0] == (value >> 16)) && (tab_reg[1] == (value & 0xFFFF)));
 }
+
+
+
+static int _client_ioctl_init(void)
+{
+	int fd;
+	//index config
+	fd = open("/sys/class/gpio/export", O_WRONLY);
+	if(fd < 0)
+		return 1 ;
+
+	write(fd, CLIENT_GPIO_INDEX, strlen(CLIENT_GPIO_INDEX));
+	close(fd);
+
+	//direction config
+	fd = open("/sys/class/gpio/gpio" CLIENT_GPIO_INDEX "/direction", O_WRONLY);
+	if(fd < 0)
+		return 2;
+
+    write(fd, "out", strlen("out"));
+	close(fd);	
+	
+	return 0;
+}
+
+static int _client_ioctl_on(void)
+{
+	int fd;
+    
+	fd = open("/sys/class/gpio/gpio" CLIENT_GPIO_INDEX "/value", O_WRONLY);
+	if(fd < 0)
+		return 1;
+
+	write(fd, "0", 1);
+	close(fd);
+
+	return 0;
+}
+
+static int _client_ioctl_off(void)
+{
+	int fd;
+    
+	fd = open("/sys/class/gpio/gpio" CLIENT_GPIO_INDEX "/value", O_WRONLY);
+	if(fd < 0)
+		return 1;
+
+	write(fd, "1", 1);
+	close(fd);
+
+	return 0;
+}
+
+static void _modbus_rtu_client_ioctl(modbus_t *ctx, int on)
+{
+    if (on) {
+        _client_ioctl_on();
+    } else {
+        _client_ioctl_off();
+    }
+}
+
+
 
 int main(int argc, char *argv[])
 {
@@ -87,7 +156,11 @@ int main(int argc, char *argv[])
     } else if (use_backend == TCP_PI) {
         ctx = modbus_new_tcp_pi("::1", "1502");
     } else {
-        ctx = modbus_new_rtu("/dev/ttyUSB1", 115200, 'N', 8, 1);
+        ctx = modbus_new_rtu("/dev/ttymxc1", 9600, 'N', 8, 1);
+        _client_ioctl_init();
+        modbus_rtu_set_custom_rts(ctx, _modbus_rtu_client_ioctl);
+        modbus_rtu_set_rts(ctx, MODBUS_RTU_RTS_DOWN);
+        modbus_rtu_set_serial_mode(ctx, MODBUS_RTU_RS485);
     }
     if (ctx == NULL) {
         fprintf(stderr, "Unable to allocate libmodbus context\n");
@@ -108,6 +181,7 @@ int main(int argc, char *argv[])
         modbus_free(ctx);
         return -1;
     }
+
     modbus_get_response_timeout(ctx, &new_response_to_sec, &new_response_to_usec);
 
     printf("** UNIT TESTING **\n");
