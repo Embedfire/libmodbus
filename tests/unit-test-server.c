@@ -10,10 +10,6 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <modbus.h>
-
-#include <sys/stat.h>
-#include <fcntl.h>
-
 #ifdef _WIN32
 # include <winsock2.h>
 #else
@@ -27,71 +23,11 @@
 
 #include "unit-test.h"
 
-#define SERVER_GPIO_INDEX 	"23"
-
 enum {
     TCP,
     TCP_PI,
     RTU
 };
-
-static int _server_ioctl_init(void)
-{
-	int fd;
-	//index config
-	fd = open("/sys/class/gpio/export", O_WRONLY);
-	if(fd < 0)
-		return 1 ;
-
-	write(fd, SERVER_GPIO_INDEX, strlen(SERVER_GPIO_INDEX));
-	close(fd);
-
-	//direction config
-	fd = open("/sys/class/gpio/gpio" SERVER_GPIO_INDEX "/direction", O_WRONLY);
-	if(fd < 0)
-		return 2;
-
-	write(fd, "out", strlen("out"));
-	close(fd);	
-	
-	return 0;
-}
-
-static int _server_ioctl_on(void)
-{
-	int fd;
-    
-	fd = open("/sys/class/gpio/gpio" SERVER_GPIO_INDEX "/value", O_WRONLY);
-	if(fd < 0)
-		return 1;
-
-	write(fd, "1", 1);
-	close(fd);
-	return 0;
-}
-
-static int _server_ioctl_off(void)
-{
-	int fd;
-    
-	fd = open("/sys/class/gpio/gpio" SERVER_GPIO_INDEX "/value", O_WRONLY);
-	if(fd < 0)
-		return 1;
-
-	write(fd, "0", 1);
-	close(fd);
-	return 0;
-}
-
-static void _modbus_rtu_server_ioctl(modbus_t *ctx, int on)
-{
-    if (on) {
-        _server_ioctl_on();
-    } else {
-        _server_ioctl_off();
-    }
-}
-
 
 int main(int argc, char*argv[])
 {
@@ -127,12 +63,8 @@ int main(int argc, char*argv[])
         ctx = modbus_new_tcp_pi("::0", "1502");
         query = malloc(MODBUS_TCP_MAX_ADU_LENGTH);
     } else {
-        ctx = modbus_new_rtu("/dev/ttymxc2", 9600, 'N', 8, 1);
-        _server_ioctl_init();
+        ctx = modbus_new_rtu("/dev/ttymxc1", 115200, 'N', 8, 1);
         modbus_set_slave(ctx, SERVER_ID);
-        modbus_rtu_set_custom_rts(ctx, _modbus_rtu_server_ioctl);
-        modbus_rtu_set_rts(ctx, MODBUS_RTU_RTS_UP);
-        modbus_rtu_set_serial_mode(ctx, MODBUS_RTU_RS485);
         query = malloc(MODBUS_RTU_MAX_ADU_LENGTH);
     }
     header_length = modbus_get_header_length(ctx);
